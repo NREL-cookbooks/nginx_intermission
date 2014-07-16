@@ -1,0 +1,18 @@
+include authorized_ip;
+
+server {
+  listen <%= node[:nginx_intermission][:port] %>;
+  server_name _;
+
+  location /_intermission {
+    if ($authorized_ip = no) {
+      return 404;
+    }
+
+    if ($arg_app_name) {
+      set $app_name $arg_app_name;
+    }
+
+    content_by_lua_file <%= node[:nginx][:dir] %>/intermission/intermission_helpers.lua;
+  }
+}

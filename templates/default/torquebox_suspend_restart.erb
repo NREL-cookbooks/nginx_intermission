@@ -1,0 +1,34 @@
+#!<%= node[:rbenv][:root_path] %>/shims/ruby
+
+require "net/http"
+
+puts "Pausing requests..."
+response = Net::HTTP.get_response(URI.parse("http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/enable?app_name=torquebox"))
+response = Net::HTTP.get_response(URI.parse("http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/status?app_name=torquebox"))
+raise "Intermission does not appear to be paused as expected" unless(response.body =~ /Pause enabled/i)
+
+puts "Waiting 2 seconds for active requests to complete..."
+sleep 2
+
+system("/etc/init.d/torquebox stop")
+system("/etc/init.d/torquebox start")
+
+print "Waiting for torquebox to start..."
+while(true)
+  uri = URI.parse("http://localhost:<%= node[:torquebox][:http_port] %>/backstage/apps?format=json")
+  http = Net::HTTP.new(uri.host, uri.port)
+  request = Net::HTTP::Get.new(uri.request_uri)
+  request.basic_auth(<%= node[:torquebox][:backstage][:username].inspect %>, <%= node[:torquebox][:backstage][:password].inspect %>)
+  response = http.request(request)
+
+  break if(response.code == "200")
+
+  print "."
+  sleep 0.2
+end
+
+puts "\nResuming requests..."
+Net::HTTP.get_response(URI.parse("http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/disable?app_name=torquebox"))
+
+response = Net::HTTP.get_response(URI.parse("http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/status?app_name=torquebox"))
+raise "Intermission does not appear to be unpaused as expected" unless(response.body =~ /Pause disabled/i)
