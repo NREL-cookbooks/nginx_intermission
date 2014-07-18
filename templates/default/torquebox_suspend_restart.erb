@@ -1,29 +1,37 @@
-#!<%= node[:rbenv][:root_path] %>/shims/ruby
+#!/bin/bash
 
-require "net/http"
+echo "Pausing requests..."
+curl -s "http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/enable?app_name=torquebox" > /dev/null
 
-puts "Pausing requests..."
-response = Net::HTTP.get_response(URI.parse("http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/enable?app_name=torquebox"))
-response = Net::HTTP.get_response(URI.parse("http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/status?app_name=torquebox"))
-raise "Intermission does not appear to be paused as expected" unless(response.body =~ /Pause enabled/i)
+RESPONSE=$(curl -s "http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/status?app_name=torquebox")
+if [[ $RESPONSE != *Pause\ enabled* ]]; then
+  echo "Intermission does not appear to be paused as expected (response: $RESPONSE)"
+  exit 1
+fi
 
-puts "Waiting 2 seconds for active requests to complete..."
+echo "Waiting 2 seconds for active requests to complete..."
 sleep 2
 
-system("/etc/init.d/torquebox stop")
-system("/etc/init.d/torquebox start")
+/etc/init.d/torquebox stop
+/etc/init.d/torquebox start
 
-print "Waiting for torquebox to start..."
-while(true)
-  still_deploying_markers = Dir.glob("<%= node[:torquebox][:conf_dir] %>/deployments/*.isdeploying")
-  break if(still_deploying_markers.empty?)
+echo -n "Waiting for torquebox to start..."
+while true; do
+  if test -n "$(find <%= node[:torquebox][:conf_dir] %>/deployments -name '*.isdeploying' -print -quit)"; then
+    echo -n "."
+  else
+    break
+  fi
 
-  print "."
   sleep 0.5
-end
+done
 
-puts "\nResuming requests..."
-Net::HTTP.get_response(URI.parse("http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/disable?app_name=torquebox"))
+echo ""
+echo "Resuming requests..."
+curl -s "http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/disable?app_name=torquebox" > /dev/null
 
-response = Net::HTTP.get_response(URI.parse("http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/status?app_name=torquebox"))
-raise "Intermission does not appear to be unpaused as expected" unless(response.body =~ /Pause disabled/i)
+RESPONSE=$(curl -s "http://localhost:<%= node[:nginx_intermission][:port] %>/_intermission/status?app_name=torquebox")
+if [[ $RESPONSE != *Pause\ disabled* ]]; then
+  echo "Intermission does not appear to be unpaused as expected (response: $RESPONSE)"
+  exit 1
+fi
